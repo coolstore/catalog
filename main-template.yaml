@@ -1,0 +1,213 @@
+---
+kind: Template
+apiVersion: v1
+metadata:
+  annotations:
+    description: Application template for Coolstore Catalog Service
+    iconClass: icon-jboss
+    tags: tomcat,jws
+    version: 1.0.0
+  name: catalog
+labels:
+  template: web-ui
+objects:
+- apiVersion: v1
+  kind: DeploymentConfig
+  metadata:
+    name: catalog
+    labels:
+      application: catalog
+  spec:
+    replicas: 1
+    selector:
+      deploymentconfig: catalog
+    strategy:
+      resources: {}
+      type: Recreate
+    template:
+      metadata:
+        labels:
+          application: catalog
+          deploymentconfig: catalog
+        name: catalog
+      spec:
+        containers:
+        - env:
+          - name: JWS_ADMIN_USERNAME
+            value: Skq3VtCd
+          - name: JWS_ADMIN_PASSWORD
+            value: oktt6yhw
+          - name: DB_USERNAME
+            value: catalog
+          - name: DB_PASSWORD
+            value: coolstore
+          - name: DB_NAME
+            value: catalogdb
+          - name: DB_SERVER
+            value: catalog-mongodb
+          image: catalog
+          imagePullPolicy: Always
+          name: catalog
+          ports:
+          - containerPort: 8778
+            name: jolokia
+            protocol: TCP
+          - containerPort: 8080
+            name: http
+            protocol: TCP
+          readinessProbe:
+            failureThreshold: 10
+            exec:
+              command:
+              - /bin/bash
+              - -c
+              - curl -s -u Skq3VtCd:oktt6yhw 'http://localhost:8080/manager/jmxproxy/?get=Catalina%3Atype%3DServer&att=stateName'
+                |grep -iq 'stateName *= *STARTED'
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            successThreshold: 1
+            timeoutSeconds: 1
+          resources:
+            limits:
+              memory: 600Mi
+            requests:
+              memory: 200Mi
+          terminationMessagePath: /dev/termination-log
+        dnsPolicy: ClusterFirst
+        restartPolicy: Always
+        securityContext: {}
+        terminationGracePeriodSeconds: 75
+    triggers:
+    - imageChangeParams:
+        automatic: true
+        containerNames:
+        - catalog
+        from:
+          kind: ImageStreamTag
+          name: catalog:latest
+      type: ImageChange
+    - type: ConfigChange
+- apiVersion: v1
+  kind: Service
+  metadata:
+    annotations:
+      service.alpha.openshift.io/dependencies: '[{"name":"catalog-mongodb","namespace":"","kind":"Service"}]'
+    labels:
+      app: catalog
+      application: catalog
+    name: catalog
+  spec:
+    ports:
+    - port: 8080
+      protocol: TCP
+      targetPort: 8080
+    selector:
+      deploymentconfig: catalog
+- apiVersion: v1
+  kind: Service
+  metadata:
+    labels:
+      app: catalog
+      application: catalog
+    name: catalog-mongodb
+  spec:
+    ports:
+    - name: mongo
+      port: 27017
+      protocol: TCP
+      targetPort: 27017
+    selector:
+      deploymentconfig: catalog-mongodb
+    sessionAffinity: None
+    type: ClusterIP
+- apiVersion: v1
+  kind: DeploymentConfig
+  metadata:
+    labels:
+      application: catalog
+    name: catalog-mongodb
+  spec:
+    replicas: 1
+    selector:
+      deploymentconfig: catalog-mongodb
+    strategy:
+      recreateParams:
+        timeoutSeconds: 600
+      resources: {}
+      type: Recreate
+    template:
+      metadata:
+        labels:
+          application: catalog
+          deploymentconfig: catalog-mongodb
+      spec:
+        containers:
+        - env:
+          - name: KUBERNETES_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+          - name: MONGODB_USER
+            value: catalog
+          - name: MONGODB_PASSWORD
+            value: coolstore
+          - name: MONGODB_DATABASE
+            value: catalogdb
+          - name: MONGODB_ADMIN_PASSWORD
+            value: coolstore
+          image: mongodb
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            successThreshold: 1
+            tcpSocket:
+              port: 27017
+            timeoutSeconds: 1
+          name: catalog-mongodb
+          ports:
+          - containerPort: 27017
+            protocol: TCP
+          readinessProbe:
+            exec:
+              command:
+              - /bin/sh
+              - -i
+              - -c
+              - mongo 127.0.0.1:27017/$MONGODB_DATABASE -u $MONGODB_USER -p $MONGODB_PASSWORD
+                --eval="quit()"
+            failureThreshold: 3
+            initialDelaySeconds: 3
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          resources:
+            limits:
+              memory: 512Mi
+          securityContext:
+            capabilities: {}
+            privileged: false
+          terminationMessagePath: /dev/termination-log
+          volumeMounts:
+          - mountPath: /var/lib/mongodb/data
+            name: mongodb-data
+        dnsPolicy: ClusterFirst
+        restartPolicy: Always
+        securityContext: {}
+        terminationGracePeriodSeconds: 30
+        volumes:
+        - emptyDir: {}
+          name: mongodb-data
+    test: false
+    triggers:
+    - imageChangeParams:
+        automatic: true
+        containerNames:
+        - catalog-mongodb
+        from:
+          kind: ImageStreamTag
+          name: mongodb:3.2
+          namespace: openshift
+      type: ImageChange
+    - type: ConfigChange
